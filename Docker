@@ -1,0 +1,2 @@
+docker build -t website-scraper-service .
+docker run -p 3000:3000 website-scraper-service
