@@ -1,7 +1,7 @@
 # Base image
 FROM node:18-slim
 
-# Install dependencies for Playwright
+# Install dependencies for Playwright rendering
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     fonts-liberation \
@@ -21,13 +21,20 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     libxshmfence1 \
     libcairo2 \
-    libexpat1 && \
-    rm -rf /var/lib/apt/lists/*
+    libexpat1 && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# Copy and install dependencies
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
+
+# Download Playwright browser binaries
+RUN npx playwright install --with-deps
+
+# Copy application code
 COPY index.js ./
 
 EXPOSE 3000
+
 CMD ["node", "index.js"]
