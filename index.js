@@ -26,40 +26,40 @@ app.post('/scrape', async (req, res) => {
     browser = await chromium.launch();
     const page = await browser.newPage();
 
-    // 1. Navigate and wait for network‐idle
-    await page.goto(url, { waitUntil: 'networkidle' });
+    // 1. Navigate, wait for load + idle
+await page.goto(url, {
+  waitUntil: ['load', 'networkidle']
+});
 
-    // 2. Apply @media print CSS rules
-    await page.emulateMedia({ media: 'print' });
+// 2. Double‑check idle
+await page.waitForLoadState('networkidle');
 
-    if (format === 'html') {
-      const html = await page.content();
-      return res
-        .set('Content-Type', 'text/html')
-        .set('Content-Disposition', 'attachment; filename="page.html"')
-        .send(Buffer.from(html, 'utf-8'));
-    }
+// 3. Wait for a known element (fallback)
+await page.waitForSelector('.main-content', { timeout: 10000 });
 
-    // 3. Generate a 1920px‑wide landscape PDF
-    const pdfBuffer = await page.pdf({
-      width: '1920px',                     // custom width in pixels :contentReference[oaicite:0]{index=0}
-      height: '1080px',                    // choose a height (e.g. 1080px) :contentReference[oaicite:1]{index=1}
-      landscape: true,                     // rotate to horizontal :contentReference[oaicite:2]{index=2}
-      printBackground: true,               // include CSS backgrounds :contentReference[oaicite:3]{index=3}
-      preferCSSPageSize: true,             // respect any @page size in your CSS :contentReference[oaicite:4]{index=4}
-      margin: {                           // safe gutter so nothing is clipped
-        top:    '1cm',
-        right:  '1cm',
-        bottom: '1cm',
-        left:   '1cm'
+// 4. Optional scroll for lazy content
+await page.evaluate(async () => {
+  await new Promise(resolve => {
+    let total = 0, step = 100;
+    const timer = setInterval(() => {
+      window.scrollBy(0, step);
+      total += step;
+      if (total >= document.body.scrollHeight) {
+        clearInterval(timer);
+        resolve();
       }
-    });
-
-    // 4. Send it back
-    res
-      .set('Content-Type', 'application/pdf')
-      .set('Content-Disposition', 'attachment; filename="page.pdf"')
-      .send(pdfBuffer);
+    }, 100);
+  });
+});
+// 5. Generate PDF
+const pdfBuffer = await page.pdf({
+  width: '1920px',
+  height: '1080px',
+  landscape: true,
+  printBackground: true,
+  preferCSSPageSize: true,
+  margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' }
+});
 
   } catch (err) {
     console.error('Scrape error:', err);
