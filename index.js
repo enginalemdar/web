@@ -26,44 +26,60 @@ app.post('/scrape', async (req, res) => {
     browser = await chromium.launch();
     const page = await browser.newPage();
 
-    // 1. Navigate, wait for load + idle
-await page.goto(url, {
-  waitUntil: ['load', 'networkidle']
-});
+    // 1. Navigate and wait for full load + idle
+    await page.goto(url, { waitUntil: ['load', 'networkidle'] });
+    await page.waitForLoadState('networkidle');
 
-// 2. Double‑check idle
-await page.waitForLoadState('networkidle');
+    // 2. (Optional) wait a moment for any late-injected JS, or for body at least
+    await page.waitForTimeout(1000);
+    // -- or --
+    // await page.waitForSelector('body', { timeout: 5000 });
 
-// 3. Wait for a known element (fallback)
-await page.waitForSelector('.main-content', { timeout: 10000 });
+    // 3. Auto‑scroll to trigger lazy loads
+    await page.evaluate(async () => {
+      await new Promise(resolve => {
+        let total = 0, step = 100;
+        const timer = setInterval(() => {
+          window.scrollBy(0, step);
+          total += step;
+          if (total >= document.body.scrollHeight) {
+            clearInterval(timer);
+            resolve();
+          }
+        }, 100);
+      });
+    });
 
-// 4. Optional scroll for lazy content
-await page.evaluate(async () => {
-  await new Promise(resolve => {
-    let total = 0, step = 100;
-    const timer = setInterval(() => {
-      window.scrollBy(0, step);
-      total += step;
-      if (total >= document.body.scrollHeight) {
-        clearInterval(timer);
-        resolve();
-      }
-    }, 100);
-  });
-});
-// 5. Generate PDF
-const pdfBuffer = await page.pdf({
-  width: '1920px',
-  height: '1080px',
-  landscape: true,
-  printBackground: true,
-  preferCSSPageSize: true,
-  margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' }
-});
+    if (format === 'html') {
+      // Return raw HTML
+      const html = await page.content();
+      return res
+        .set('Content-Type', 'text/html')
+        .set('Content-Disposition', 'attachment; filename="page.html"')
+        .send(html);
+    }
+
+    // 4. Measure full page height
+    const fullHeight = await page.evaluate(() => document.body.scrollHeight);
+
+    // 5. Generate PDF
+    const pdfBuffer = await page.pdf({
+      width: '1920px',
+      height: `${fullHeight}px`,
+      landscape: true,
+      printBackground: true,
+      margin: { top: '1cm', right: '1cm', bottom: '1cm', left: '1cm' }
+    });
+
+    // 6. Send PDF
+    return res
+      .set('Content-Type', 'application/pdf')
+      .set('Content-Disposition', 'attachment; filename="page.pdf"')
+      .send(pdfBuffer);
 
   } catch (err) {
     console.error('Scrape error:', err);
-    res.status(500).send('Scraping failed');
+    return res.status(500).send(`Scraping failed: ${err.message}`);
   } finally {
     if (browser) await browser.close();
   }
